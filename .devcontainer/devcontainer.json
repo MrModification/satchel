@@ -21,7 +21,8 @@
 			"extensions": [
 				"kampfkarren.selene-vscode",
 				"johnnymorganz.stylua",
-				"johnnymorganz.luau-lsp"
+				"johnnymorganz.luau-lsp",
+				"redhat.vscode-yaml"
 			]
 		}
 	},
