@@ -1053,7 +1053,17 @@ local function OnChildRemoved(child: Instance): () -- From Character or Backpack
 	if newParent == Character or newParent == Backpack then
 		return
 	end
-
+	
+	if isCustomItem then
+		local canDrop = child:GetAttribute("CanBeDropped")
+		if canDrop == true then
+			child.Parent = workspace
+		else
+			child.Parent = Backpack
+			return
+		end
+	end
+	
 	local slot: any = SlotsByTool[tool]
 	if slot then
 		slot:Clear()
@@ -2139,6 +2149,23 @@ do -- Hotkey stuff
 	HotkeyFns[DROP_HOTKEY_VALUE] = function(): () --NOTE: HopperBin
 		if ActiveHopper then
 			UnequipAllTools()
+		end
+		
+		local customTool = nil
+		for _, v in Character:GetChildren() do
+			if v:GetAttribute("Tool") then
+				customTool = v
+				break
+			end
+		end
+		
+		if customTool then
+			local canDrop = customTool:GetAttribute("CanBeDropped")
+			if canDrop == true then
+				customTool.Parent = workspace
+			else
+				customTool.Parent = Backpack
+			end
 		end
 	end
 
