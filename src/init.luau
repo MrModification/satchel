@@ -7,13 +7,13 @@
 ]]
 
 local ContextActionService = game:GetService("ContextActionService")
-local GuiService = game:GetService("GuiService")
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local StarterGui = game:GetService("StarterGui")
 local TextChatService = game:GetService("TextChatService")
 local UserInputService = game:GetService("UserInputService")
+local StarterGui = game:GetService("StarterGui")
+local GuiService = game:GetService("GuiService")
+local RunService = game:GetService("RunService")
 local VRService = game:GetService("VRService")
+local Players = game:GetService("Players")
 local PlayerGui: Instance = Players.LocalPlayer:WaitForChild("PlayerGui")
 
 local BackpackScript = {}
@@ -340,9 +340,26 @@ local function DisableActiveHopper(): () --NOTE: HopperBin
 	ActiveHopper = nil :: any
 end
 
+local function UnequipCustomTools(exception: Instance?): ()
+	if Humanoid then
+		for _, v in Character:GetChildren() do
+			if v:GetAttribute("Tool") and v ~= exception then 
+				v.Parent = Backpack 
+			end
+		end
+	end
+end
+
+local function EquipCustomTool(tool: Tool): ()
+	if Humanoid then
+		tool.Parent = Character
+	end
+end
+
 local function UnequipAllTools(): () --NOTE: HopperBin
 	if Humanoid then
 		Humanoid:UnequipTools()
+		UnequipCustomTools()
 		if ActiveHopper then
 			DisableActiveHopper()
 		end
@@ -351,8 +368,12 @@ end
 
 local function EquipNewTool(tool: Tool): () --NOTE: HopperBin
 	UnequipAllTools()
-	Humanoid:EquipTool(tool) --NOTE: This would also unequip current Tool
-	--tool.Parent = Character --TODO: Switch back to above line after EquipTool is fixed!
+	if tool:GetAttribute("Tool") then
+		EquipCustomTool(tool)
+	else
+		Humanoid:EquipTool(tool) --NOTE: This would also unequip current Tool
+		--tool.Parent = Character --TODO: Switch back to above line after EquipTool is fixed!
+	end
 end
 
 local function IsEquipped(tool: Tool): boolean
@@ -375,6 +396,7 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 	local ToolIcon: ImageLabel = nil
 	local ToolName: TextLabel = nil
 	local ToolChangeConn: any = nil
+	local ToolAttributeConn: any = nil
 	local HighlightFrame: any = nil -- UIStroke
 	local SelectionObj: ImageLabel = nil
 
@@ -411,32 +433,26 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 
 		-- Update the slot with tool data
 		local function assignToolData(): ()
-			local icon: string = tool.TextureId
+			local icon: string = tool:GetAttribute("Icon") or (tool:IsA("Tool") and tool.TextureId) or ""
 			ToolIcon.Image = icon
+			ToolName.Visible = (icon == "")
 
-			if icon ~= "" then
-				-- Enable the tool name on the slot if there is no icon
-				ToolName.Visible = false
-			else
-				ToolName.Visible = true
-			end
+			ToolName.Text = tool:GetAttribute("DisplayName") or tool.Name
 
-			ToolName.Text = tool.Name
+			local itemToolTip = tool:GetAttribute("ToolTip") or (tool:IsA("Tool") and tool.ToolTip) or ""
 
-			-- If there is a tooltip, then show it
-			if ToolTip and tool:IsA("Tool") then --NOTE: HopperBin
-				ToolTip.Text = tool.ToolTip
+			if itemToolTip ~= "" then
+				ToolTip.Text = itemToolTip
 				ToolTip.Size = UDim2.fromOffset(0, TOOLTIP_HEIGHT)
 				ToolTip.Position = UDim2.new(0.5, 0, 0, TOOLTIP_OFFSET)
 			end
 		end
+
 		assignToolData()
 
 		-- Disconnect tool event if it exists
-		if ToolChangeConn then
-			ToolChangeConn:Disconnect()
-			ToolChangeConn = nil
-		end
+		if ToolChangeConn then ToolChangeConn:Disconnect() ToolChangeConn = nil end
+		if ToolAttributeConn then ToolAttributeConn:Disconnect() ToolAttributeConn = nil end
 
 		-- Update the slot with new tool data if the tool's properties changes
 		ToolChangeConn = tool.Changed:Connect(function(property: string): ()
@@ -445,6 +461,14 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 			end
 		end)
 
+		-- Update on Attribute changes (Important for Custom Tools)
+		ToolAttributeConn = tool.AttributeChanged:Connect(function(attribute: string)
+			if attribute == "Icon" or attribute == "DisplayName" or attribute == "ToolTip" then
+				assignToolData()
+			end
+		end)
+
+		-- Handling Draggable state
 		local hotbarSlot: boolean = (self.Index <= NumberOfHotbarSlots)
 		local inventoryOpen: boolean = InventoryFrame.Visible
 
@@ -934,16 +958,29 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 end
 
 local function OnChildAdded(child: Instance): () -- To Character or Backpack
-	if not child:IsA("Tool") and not child:IsA("HopperBin") then --NOTE: HopperBin
+	local isCustomItem = child:GetAttribute("Tool") ~= nil 
+	local isRobloxTool = child:IsA("Tool") or child:IsA("HopperBin")
+
+	if not isRobloxTool and not isCustomItem then
 		if child:IsA("Humanoid") and child.Parent == Character then
 			Humanoid = child
 		end
 		return
 	end
+
 	local tool: any = child
 
 	if tool.Parent == Character then
 		ShowVRBackpackPopup()
+		if isRobloxTool then
+			UnequipCustomTools()
+		else
+			UnequipCustomTools(tool)
+			Humanoid:UnequipTools()
+			if ActiveHopper then
+				DisableActiveHopper()
+			end
+		end
 	end
 
 	if ActiveHopper and tool.Parent == Character then --NOTE: HopperBin
@@ -1001,7 +1038,10 @@ local function OnChildAdded(child: Instance): () -- To Character or Backpack
 end
 
 local function OnChildRemoved(child: Instance): () -- From Character or Backpack
-	if not child:IsA("Tool") and not child:IsA("HopperBin") then --NOTE: HopperBin
+	local isCustomItem = child:GetAttribute("Tool") ~= nil 
+	local isRobloxTool = child:IsA("Tool") or child:IsA("HopperBin")
+
+	if not isRobloxTool and not isCustomItem then
 		return
 	end
 	local tool: Tool | any = child
@@ -1230,12 +1270,12 @@ changeToolFunc = function(actionName: string, inputState: Enum.UserInputState, i
 		if
 			(
 				lastChangeToolInputObject.KeyCode == Enum.KeyCode.ButtonR1
-				and inputObject.KeyCode == Enum.KeyCode.ButtonL1
+					and inputObject.KeyCode == Enum.KeyCode.ButtonL1
 			)
-			or (
-				lastChangeToolInputObject.KeyCode == Enum.KeyCode.ButtonL1
-				and inputObject.KeyCode == Enum.KeyCode.ButtonR1
-			)
+				or (
+					lastChangeToolInputObject.KeyCode == Enum.KeyCode.ButtonL1
+					and inputObject.KeyCode == Enum.KeyCode.ButtonR1
+				)
 		then
 			if (os.clock() - lastChangeToolInputTime) <= maxEquipDeltaTime then
 				UnequipAllTools()
@@ -1793,14 +1833,14 @@ local function resizeGamepadHintsFrame(): ()
 	for i: number = 1, #filteredGamepadHints do
 		filteredGamepadHints[i].Position = (
 			i == 1 and UDim2.new(0, 0, 0, 0)
-			or UDim2.new(
-				0,
-				filteredGamepadHints[i - 1].Position.X.Offset
+				or UDim2.new(
+					0,
+					filteredGamepadHints[i - 1].Position.X.Offset
 					+ filteredGamepadHints[i - 1].Size.X.Offset
 					+ spaceBetweenElements,
-				0,
-				0
-			)
+					0,
+					0
+				)
 		)
 		filteredGamepadHints[i].Size = UDim2.new(
 			0,
